@@ -84,9 +84,15 @@ async function connect() {
           | undefined
       )?.output?.statusCode;
       const loggedOut = disconnectCode === DisconnectReason.loggedOut;
-      const shouldReconnect = true;
-      logger.warn({ shouldReconnect, loggedOut }, "Afeeyah AI WhatsApp connection closed");
-      if (!reconnecting) {
+      // 440 = this WhatsApp login was opened somewhere else (e.g. another deployment
+      // using the same paired number). Reconnecting just starts a tug-of-war.
+      const replaced = disconnectCode === DisconnectReason.connectionReplaced;
+      const shouldReconnect = !replaced;
+      logger.warn(
+        { shouldReconnect, loggedOut, replaced, disconnectCode },
+        "Afeeyah AI WhatsApp connection closed",
+      );
+      if (shouldReconnect && !reconnecting) {
         reconnecting = true;
         setTimeout(() => {
           void (async () => {
@@ -142,9 +148,15 @@ async function connect() {
         });
       } catch (error) {
         logger.error({ err: error, phoneNumber }, "Afeeyah AI message handling failed");
-        await socket?.sendMessage(phoneNumber, {
-          text: "Something went wrong while processing that message. Please try again.",
-        });
+        // Must not throw: an error here escapes the event handler and, on Node 24,
+        // an unhandled rejection kills the whole process.
+        await socket
+          ?.sendMessage(phoneNumber, {
+            text: "Something went wrong while processing that message. Please try again.",
+          })
+          .catch((sendError: unknown) => {
+            logger.warn({ err: sendError, phoneNumber }, "Afeeyah AI error reply failed");
+          });
       } finally {
         await sendPresence("paused");
       }
@@ -252,4 +264,4 @@ export async function previewConversationStart(phoneNumber: string) {
     messages.push(message);
   });
   return messages;
-}
+    }
